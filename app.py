@@ -1,5 +1,7 @@
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
+from machine_learning.predict import predict_crop
 
 st.set_page_config(
     page_title="Seasonal Crop Prediction",
@@ -15,6 +17,18 @@ def load_css():
         )
 
 load_css()
+DATA_PATH = "data/dummydatacrops.xlsx"
+
+df = pd.read_excel(DATA_PATH)
+
+row = df.iloc[0]
+
+MOISTURE = row["moisture"]
+PH = row["ph"]
+NITROGEN = row.iloc[5]
+PHOSPHORUS = row.iloc[6]
+POTASSIUM = row.iloc[7] 
+TEMPERATURE = row["temperature"]
 
 # SIDEBAR
 with st.sidebar:
@@ -62,24 +76,24 @@ st.subheader("Soil Parameters")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric("💧 Moisture", "--")
+    st.metric("💧 Moisture", f"{MOISTURE:.1f}%")
 
 with col2:
-    st.metric("🧪 pH", "--")
+    st.metric("🧪 pH", f"{PH:.2f}")
 
 with col3:
-    st.metric("🌿 Nitrogen", "--")
+    st.metric("🌿 Nitrogen", f"{NITROGEN:.1f}")
 
 col4, col5, col6 = st.columns(3)
 
 with col4:
-    st.metric("🌾 Phosphorus", "--")
+    st.metric("🌾 Phosphorus", f"{PHOSPHORUS:.1f}")
 
 with col5:
-    st.metric("🍃 Potassium", "--")
+    st.metric("🍃 Potassium", f"{POTASSIUM:.1f}")
 
 with col6:
-    st.metric("💧 WHC", "--")
+    st.metric("💧 WHC", "Not Available") 
 
 st.markdown("---")
 
@@ -88,6 +102,24 @@ season = st.selectbox(
     "Select Season",
     ["Summer", "Winter", "Monsoon"]
 )
+st.subheader("ML Prediction Inputs")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    humidity = st.number_input(
+        "Humidity (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=70.0
+    )
+
+with col2:
+    rainfall = st.number_input(
+        "Rainfall (mm)",
+        min_value=0.0,
+        value=100.0
+    )
 
 st.markdown("---")
 
@@ -110,8 +142,23 @@ with col3:
 
     predict = st.button("Predict Crop")
 
-    if predict:
-        st.success("Prediction Started...")
+if predict:
+
+    try:
+        predicted_crop = predict_crop(
+            NITROGEN,
+            PHOSPHORUS,
+            POTASSIUM,
+            TEMPERATURE,
+            humidity,
+            PH,
+            rainfall
+        )
+
+        st.success(f"Recommended Crop: {predicted_crop}")
+
+    except Exception as e:
+        st.error(f"Prediction Error: {e}")
 
 # CHART SECTION
 st.subheader("NPK Analysis")
