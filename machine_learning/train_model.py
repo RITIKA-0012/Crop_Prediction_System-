@@ -1,5 +1,7 @@
 import pandas as pd
 import joblib
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
 
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
@@ -52,8 +54,23 @@ y_pred = model.predict(X_test)
 accuracy = accuracy_score(y_test, y_pred)
 
 print("\nModel Training Completed!")
+
 print("Accuracy:", accuracy)
 
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
+cm = confusion_matrix(y_test, y_pred)
+
+disp = ConfusionMatrixDisplay(
+    confusion_matrix=cm,
+    display_labels=label_encoder.classes_
+)
+
+fig, ax = plt.subplots(figsize=(14, 12))
+disp.plot(ax=ax, xticks_rotation=90, cmap="Greens")
+plt.title("Crop Prediction Confusion Matrix")
+plt.tight_layout()
+plt.show()
 
 # Save model + encoder + feature names
 model_data = {
