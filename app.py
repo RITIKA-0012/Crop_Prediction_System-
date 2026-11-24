@@ -18,7 +18,6 @@ def load_css():
 
 load_css()
 
-# Regional coordinates + seasonal mean rainfall (mm) for accurate crop context
 LOCATIONS = {
     "Barasat (North 24 Parganas, WB)": {"lat": 22.72, "lon": 88.48, "seasonal_rain": 185.0},
     "Kolkata (South Bengal, WB)": {"lat": 22.57, "lon": 88.36, "seasonal_rain": 195.0},
@@ -67,11 +66,9 @@ def fetch_live_weather(lat, lon, default_rain):
         temp = float(current.get("temperature_2m", 26.5))
         hum = float(current.get("relative_humidity_2m", 78.0))
         live_precip = float(current.get("precipitation", 0.0))
-        # Use seasonal regional rainfall baseline + any live precipitation
         rain = round(default_rain + live_precip, 1)
         return temp, hum, rain, True
     except Exception:
-        # Offline fallback if seminar hall has no internet
         return 26.5, 78.0, default_rain, False
 
 def classify_soil(moisture, ph):
@@ -89,6 +86,22 @@ def classify_soil(moisture, ph):
     else:
         texture = "Balanced Loam"
     return f"{texture} ({acidity})"
+
+def get_irrigation_advisory(moisture):
+    if moisture < 35.0:
+        return "Irrigation Required (Low Soil Moisture)", "#B45309"
+    elif moisture > 70.0:
+        return "Saturated Soil (Check Field Drainage)", "#1D4ED8"
+    else:
+        return "Optimal Moisture (No Irrigation Needed)", "#15803D"
+
+def check_season_match(selected_season, ideal_season):
+    if "All Seasons" in ideal_season:
+        return "Season Compatibility: Suitable Year-Round"
+    season_keyword = selected_season.split(" ")[0]
+    if season_keyword.lower() in ideal_season.lower():
+        return f"Season Compatibility: Aligned with {selected_season}"
+    return f"Seasonal Note: Typically cultivated in {ideal_season}"
 
 @st.cache_data
 def get_model_validation_stats():
@@ -158,11 +171,12 @@ with st.sidebar:
     st.markdown("**Model Metadata**")
     st.caption(f"Algorithm: Random Forest (100 trees)\n\nValidation Accuracy: {acc}%\n\nDataset: {total_samples:,} records ({num_classes} classes)")
 
-# SOIL VALUES (Hardware / Buffer) + CLIMATE VALUES (Live API)
+# SOIL VALUES (Hardware / Buffer) + FIXED NEUTRAL PH BASELINE
+PH = 6.5
+
 if input_mode == "Buffered Sensor Packet":
     row = df.iloc[packet_idx]
     MOISTURE = float(row["moisture"])
-    PH = float(row["ph"])
     NITROGEN = float(row.iloc[5])
     PHOSPHORUS = float(row.iloc[6])
     POTASSIUM = float(row.iloc[7])
@@ -172,7 +186,6 @@ else:
     NITROGEN = st.sidebar.slider("Nitrogen (N) [mg/kg]", 0.0, 140.0, 90.0)
     PHOSPHORUS = st.sidebar.slider("Phosphorus (P) [mg/kg]", 5.0, 145.0, 42.0)
     POTASSIUM = st.sidebar.slider("Potassium (K) [mg/kg]", 5.0, 205.0, 43.0)
-    PH = st.sidebar.slider("Soil pH", 3.5, 9.5, 6.5)
     MOISTURE = st.sidebar.slider("Soil Moisture [%]", 10.0, 100.0, 62.0)
 
 # MINIMALIST HEADER
@@ -193,7 +206,7 @@ with tab1:
     with col1:
         st.metric("Soil Moisture", f"{MOISTURE:.1f} %")
     with col2:
-        st.metric("Soil pH", f"{PH:.2f}")
+        st.metric("Soil pH (Baseline)", f"{PH:.1f}")
     with col3:
         st.metric("Nitrogen (N)", f"{NITROGEN:.1f} mg/kg")
     with col4:
@@ -222,18 +235,23 @@ with tab1:
     best_conf = top_crops[0]["confidence"]
     soil_desc = classify_soil(MOISTURE, PH)
     whc_est = "High" if MOISTURE > 60 else ("Moderate" if MOISTURE >= 35 else "Low")
+    irrigation_msg, irrigation_color = get_irrigation_advisory(MOISTURE)
     details = CROP_INFO.get(best_crop.lower(), {
         "water": "Moderate", "duration": "90 – 120 days", "season": season, "ph": "6.0 – 7.0"
     })
+    season_note = check_season_match(season, details["season"])
 
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2 = st.columns([1, 2])
     with c1:
         st.markdown(f"""
         <div class="result-box">
-            <div class="result-label">Derived Soil Classification</div>
+            <div class="result-label">Derived Soil & Irrigation Status</div>
             <div class="result-main" style="font-size:18px;">{soil_desc}</div>
             <div class="result-sub">Water Holding Capacity: <strong>{whc_est}</strong></div>
+            <div class="result-sub" style="margin-top:6px; color:{irrigation_color}; font-weight:600;">
+                {irrigation_msg}
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -242,7 +260,9 @@ with tab1:
         <div class="result-box primary">
             <div class="result-label" style="color:#15803D;">Optimal Crop Recommendation</div>
             <div class="result-main" style="color:#14532D;">{best_crop.upper()}</div>
-            <div class="result-sub" style="color:#166534;">Posterior Class Probability: <strong>{best_conf}%</strong></div>
+            <div class="result-sub" style="color:#166534;">
+                Posterior Class Probability: <strong>{best_conf}%</strong> &nbsp;|&nbsp; {season_note}
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -262,9 +282,12 @@ with tab1:
         ))
         fig_npk.update_layout(
             template="plotly_white",
-            margin=dict(t=20, b=20, l=20, r=20),
-            yaxis=dict(title="mg/kg", range=[0, max(NITROGEN, PHOSPHORUS, POTASSIUM, 50) * 1.25], gridcolor="#F1F5F9"),
-            xaxis=dict(title=""),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font=dict(color="#0F172A"),
+            margin=dict(t=25, b=25, l=25, r=25),
+            yaxis=dict(title="mg/kg", range=[0, max(NITROGEN, PHOSPHORUS, POTASSIUM, 50) * 1.25], gridcolor="#E2E8F0", tickfont=dict(color="#0F172A")),
+            xaxis=dict(title="", tickfont=dict(color="#0F172A")),
             height=320
         )
         st.plotly_chart(fig_npk, use_container_width=True)
@@ -281,9 +304,12 @@ with tab1:
         ))
         fig_prob.update_layout(
             template="plotly_white",
-            margin=dict(t=20, b=20, l=20, r=20),
-            yaxis=dict(title="Confidence (%)", range=[0, 118], gridcolor="#F1F5F9"),
-            xaxis=dict(title=""),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            font=dict(color="#0F172A"),
+            margin=dict(t=25, b=25, l=25, r=25),
+            yaxis=dict(title="Confidence (%)", range=[0, 118], gridcolor="#E2E8F0", tickfont=dict(color="#0F172A")),
+            xaxis=dict(title="", tickfont=dict(color="#0F172A")),
             height=320
         )
         st.plotly_chart(fig_prob, use_container_width=True)
@@ -351,7 +377,7 @@ with tab2:
     st.markdown("""
     <div class="result-box">
         <div class="result-sub" style="line-height:1.7; color:#1E293B;">
-            <strong>1. In-Situ Soil Layer (ESP32 + RS485 NPK + Capacitive Moisture):</strong> Captures localized subsurface parameters (N, P, K, pH, Moisture) that vary across individual plots.<br>
+            <strong>1. In-Situ Soil Layer (ESP32 + RS485 NPK + Capacitive Moisture):</strong> Captures localized subsurface parameters (N, P, K, Moisture) with a regional neutral pH baseline (6.5).<br>
             <strong>2. Macro-Climate API Layer (Open-Meteo REST API):</strong> Fetches real-time ambient temperature, relative humidity, and precipitation via latitude/longitude coordinates, eliminating redundant DHT hardware.<br>
             <strong>3. ML Inference Engine (<code>predict.py</code>):</strong> Fuses both telemetry streams into a 7-feature vector evaluated by a 100-tree Random Forest classifier (<code>crop_prediction.pkl</code>).
         </div>
